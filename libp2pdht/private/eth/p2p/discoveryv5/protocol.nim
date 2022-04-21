@@ -222,12 +222,12 @@ func getRecord*(d: Protocol): SignedPeerRecord =
   ## Get the SPR of the local node.
   d.localNode.record
 
-proc updateRecord*(d: Protocol): DiscResult[void] =
+proc updateRecord*(d: Protocol, newSpr: SignedPeerRecord): DiscResult[void] =
   ## Update the ENR of the local node with provided `enrFields` k:v pairs.
 
-  # TODO: Do we need this proc? This simply serves so that seqNo will be
-  # incremented to satisfy the tests...
-  d.localNode.record.incSeqNo(d.privateKey)
+  info "Updated discovery SPR", uri=toURI(newSpr)
+  d.localNode.record = newSpr
+  ok()
 
   # TODO: Would it make sense to actively ping ("broadcast") to all the peers
   # we stored a handshake with in order to get that ENR updated?
@@ -316,7 +316,7 @@ proc handleTalkReq(d: Protocol, fromId: NodeId, fromAddr: Address,
   d.sendResponse(fromId, fromAddr, talkresp, reqId)
 
 proc addProviderLocal(p: Protocol, cId: NodeId, prov: SignedPeerRecord) =
-  trace "adding provider to local db", n=p.localNode, cId, prov
+  trace "adding provider to local db", cid=cId, spr=prov.data
   p.providers.mgetOrPut(cId, @[]).add(prov)
 
 proc handleAddProvider(d: Protocol, fromId: NodeId, fromAddr: Address,
@@ -328,7 +328,7 @@ proc handleGetProviders(d: Protocol, fromId: NodeId, fromAddr: Address,
 
   #TODO: add checks, add signed version
   let provs = d.providers.getOrDefault(getProviders.cId)
-  trace "providers:", provs
+  trace "providers:", prov=provs.mapIt(it.data)
 
   ##TODO: handle multiple messages
   let response = ProvidersMessage(total: 1, provs: provs)
@@ -692,7 +692,7 @@ proc getProviders*(
 
   # What providers do we know about?
   var res = d.getProvidersLocal(cId, maxitems)
-  trace "local providers:", res
+  trace "local providers:", prov=res.mapIt(it.data)
 
   let nodesNearby = await d.lookup(cId)
   trace "nearby:", nodesNearby
@@ -710,7 +710,6 @@ proc getProviders*(
       providersFut.del(index)
 
     let providersMsg2 = await providersMsg
-    trace "2", providersMsg2
 
     let providersMsgRes = providersMsg.read
     if providersMsgRes.isOk:
@@ -720,7 +719,7 @@ proc getProviders*(
       error "Sending of GetProviders message failed", error = providersMsgRes.error
       # TODO: should we consider this as an error result if all GetProviders
       # requests fail??
-  trace "getProviders collected: ", res
+  trace "getProviders collected: ", res=res.mapIt(it.data)
 
   return ok res
 
@@ -889,6 +888,7 @@ proc refreshLoop(d: Protocol) {.async.} =
     trace "refreshLoop canceled"
 
 proc ipMajorityLoop(d: Protocol) {.async.} =
+  #TODO this should be handled by libp2p, not the DHT
   ## When `enrAutoUpdate` is enabled, the IP:port combination returned
   ## by the majority will be used to update the local SPR.
   ## This should be safe as long as the routing table is not overwhelmed by
@@ -1002,6 +1002,33 @@ proc newProtocol*(
     bootstrapRecords: @bootstrapRecords,
     ipVote: IpVote.init(),
     enrAutoUpdate: enrAutoUpdate,
+    routingTable: RoutingTable.init(
+      node, config.bitsPerHop, config.tableIpLimits, rng),
+    rng: rng)
+
+  result.transport = newTransport(result, privKey, node, bindPort, bindIp, rng)
+
+proc newProtocol*(
+    privKey: PrivateKey,
+    bindPort: Port,
+    record: SignedPeerRecord,
+    bootstrapRecords: openArray[SignedPeerRecord] = [],
+    bindIp = IPv4_any(),
+    config = defaultDiscoveryConfig,
+    rng = newRng()):
+    Protocol =
+  info "Discovery SPR initialized", seqNum = record.seqNum, uri = toURI(record)
+  let node = newNode(record).expect("Properly initialized record")
+
+  # TODO Consider whether this should be a Defect
+  doAssert rng != nil, "RNG initialization failed"
+
+  result = Protocol(
+    privateKey: privKey,
+    localNode: node,
+    bootstrapRecords: @bootstrapRecords,
+    ipVote: IpVote.init(),
+    enrAutoUpdate: false, #TODO this should be removed from nim-libp2p-dht
     routingTable: RoutingTable.init(
       node, config.bitsPerHop, config.tableIpLimits, rng),
     rng: rng)

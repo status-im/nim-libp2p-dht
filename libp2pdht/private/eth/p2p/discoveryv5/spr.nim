@@ -166,14 +166,14 @@ proc update*(r: var SignedPeerRecord, pk: crypto.PrivateKey,
 proc toTypedRecord*(r: SignedPeerRecord) : RecordResult[SignedPeerRecord] = ok(r)
 
 proc ip*(r: SignedPeerRecord): Option[array[4, byte]] =
-    let ma = r.data.addresses[0].address
-
-    let code = ma[0].get.protoCode()
-    if code.isOk and code.get == multiCodec("ip4"):
-      var ipbuf: array[4, byte]
-      let res = ma[0].get.protoArgument(ipbuf)
-      if res.isOk:
-        return some(ipbuf)
+    for address in r.data.addresses:
+      let ma = address.address
+      let code = ma[0].get.protoCode()
+      if code.isOk and code.get == multiCodec("ip4"):
+        var ipbuf: array[4, byte]
+        let res = ma[0].get.protoArgument(ipbuf)
+        if res.isOk:
+          return some(ipbuf)
 
 #         err("Incorrect IPv4 address")
 #       else:
@@ -188,15 +188,16 @@ proc ip*(r: SignedPeerRecord): Option[array[4, byte]] =
 #     err("MultiAddress must be wire address (tcp, udp or unix)")
 
 proc udp*(r: SignedPeerRecord): Option[int] =
-    let ma = r.data.addresses[0].address
+    for address in r.data.addresses:
+      let ma = address.address
 
-    let code = ma[1].get.protoCode()
-    if code.isOk and code.get == multiCodec("udp"):
-      var pbuf: array[2, byte]
-      let res = ma[1].get.protoArgument(pbuf)
-      if res.isOk:
-        let p = fromBytesBE(uint16, pbuf)
-        return some(p.int)
+      let code = ma[1].get.protoCode()
+      if code.isOk and code.get == multiCodec("udp"):
+        var pbuf: array[2, byte]
+        let res = ma[1].get.protoArgument(pbuf)
+        if res.isOk:
+          let p = fromBytesBE(uint16, pbuf)
+          return some(p.int)
 
 proc fromBase64*(r: var SignedPeerRecord, s: string): bool =
   ## Loads SPR from base64-encoded protobuf-encoded bytes, and validates the

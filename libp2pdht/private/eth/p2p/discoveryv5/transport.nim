@@ -110,7 +110,7 @@ proc receive*(t: Transport, a: Address, packet: openArray[byte]) =
       if packet.messageOpt.isSome():
         let message = packet.messageOpt.get()
         trace "Received message packet", srcId = packet.srcId, address = a,
-          kind = message.kind, packet
+          kind = message.kind, p = $packet
         t.client.handleMessage(packet.srcId, a, message)
       else:
         trace "Not decryptable message packet received",
