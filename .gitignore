@@ -1,3 +1,5 @@
 coverage
 nimcache
 tests/testAll
+nimble.develop
+nimble.paths
